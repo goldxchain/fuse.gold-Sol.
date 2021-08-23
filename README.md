@@ -1,20 +1,16 @@
-# hxygoldvue
+# hxygoldvue 0.1.0
 
 ## Project setup
 ```
 npm install
 ```
 
-### Compiles and hot-reloads for development
+### Build and Launch
 ```
-npm run serve
-```
+npm run build(copy 'dist' folder to src/database)
 
-### Compiles and minifies for production
+npm run start
 ```
-npm run build
-```
-
 ### Lints and fixes files
 ```
 npm run lint
