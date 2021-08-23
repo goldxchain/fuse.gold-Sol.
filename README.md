@@ -5,7 +5,7 @@
 npm install
 ```
 
-### build and launch
+### Build and Launch
 ```
 npm run build
 
