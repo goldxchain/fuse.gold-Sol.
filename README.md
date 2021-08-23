@@ -7,7 +7,7 @@ npm install
 
 ### Build and Launch
 ```
-npm run build
+npm run build(copy 'dist' folder to src/database)
 
 npm run start
 ```
