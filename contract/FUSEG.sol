@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.0;
-// FUSEG version 0.1.0
+
 /*
  * ABDK Math 64.64 Smart Contract Library.  Copyright © 2019 by ABDK Consulting.
  * Author: Mikhail Vladimirov <mikhail.vladimirov@gmail.com>
@@ -1691,7 +1691,7 @@ contract Q007 is ERC20, Ownable {
     uint totalAmount = _collectFees(client, initAmount);
     uint feeAmount = percentageCalculator(initAmount, _feesPercentage);
     uint refAmount = percentageCalculator(feeAmount, _refFeesPercentage);
-    uint amount = totalAmount.sub(refAmount);
+    uint amount = totalAmount;
 
     if(Members[client].clientAddress != address(0)) {
         _transfer(address(this), client, amount);
