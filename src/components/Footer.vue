@@ -1,10 +1,7 @@
 <template>
 	<footer>
-        <div class="social-icons" style="opacity:0">
-            <i class="fab fa-twitter"></i>
-            <i class="fab fa-telegram-plane"></i>
-
-        </div>
+        <div style="margin-left:90%; color:black;">web GUI: v0.2.0</div>
+        <div style="margin-left:90%; color:black;">Contract: v0.2.0</div>
     </footer>
 </template>
 <script>
