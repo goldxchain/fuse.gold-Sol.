@@ -1521,7 +1521,6 @@ contract Q007 is ERC20, Ownable {
   uint256 private r_feesPercentage;
   uint256 private r_sellFeesPercentage;
   bool private _takeFees = true;
-  mapping(address => bool) private _whiteList;
   mapping(address => uint256) private _referrerBalance;
 
 
@@ -1583,9 +1582,6 @@ contract Q007 is ERC20, Ownable {
     _teamAddress = newAddress;
   }
   
-  function updateWhiteList(address payable newAddress, bool status) public onlyOwner {
-    _whiteList[newAddress] = status;
-  }
   // End of update functions
   
   // Start of getter functions
@@ -1636,10 +1632,9 @@ contract Q007 is ERC20, Ownable {
   // End of modifiers
   
   // Start of internal functions
-  function _collectFees(address payable client, uint amount) internal returns(uint) {
+  function _collectFees(uint amount) internal returns(uint) {
     uint amountSubFees = amount;
-    bool isInWhiteList = _whiteList[client];
-    if(_takeFees && !isInWhiteList) {
+    if(_takeFees) {
       uint feeAmount = percentageCalculator(amount, _feesPercentage);
       if(feeAmount > 0) {
         _transfer(address(this), _teamAddress, feeAmount);
@@ -1688,7 +1683,7 @@ contract Q007 is ERC20, Ownable {
     int goldPrice = getGoldPrice();
     _mint(address(this), initAmount);
     _totalValue = SafeMath.add(_totalValue, initAmount);
-    uint totalAmount = _collectFees(client, initAmount);
+    uint totalAmount = _collectFees(initAmount);
     uint feeAmount = percentageCalculator(initAmount, _feesPercentage);
     uint refAmount = percentageCalculator(feeAmount, _refFeesPercentage);
     uint amount = totalAmount;
@@ -1714,8 +1709,7 @@ contract Q007 is ERC20, Ownable {
     int goldPrice = getGoldPrice();
     _totalBurnt = SafeMath.add(_totalBurnt, amount);
     _totalValue = SafeMath.sub(_totalValue, amount);
-    bool isInWhiteList = _whiteList[client];
-    if(_takeFees && !isInWhiteList) {
+    if(_takeFees) {
       uint feeAmount = percentageCalculator(amount, _sellFeesPercentage);
       if(feeAmount > 0) {
         _transfer(client, _teamAddress, feeAmount);
