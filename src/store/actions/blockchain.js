@@ -236,7 +236,7 @@ const claimDividends = ({commit}, provider) => {
 }
 
 function updateOrder(id, txhash) {
-            let endpoint = `https://vue-ui-test.herokuapp.com/api/update-order/${id}&${txhash}`;
+            let endpoint = `https://vue-app-djnd6.ondigitalocean.app/api/update-order/${id}&${txhash}`;
             axios.post(endpoint,)
             .then((response) => {
                 console.log(response)
@@ -246,7 +246,7 @@ function updateOrder(id, txhash) {
         }
 
 function updateSellOrder(id, txhash) {
-            let endpoint = `https://vue-ui-test.herokuapp.com/api/update-sell-order/${id}&${txhash}`;
+            let endpoint = `https://vue-app-djnd6.ondigitalocean.app/api/update-sell-order/${id}&${txhash}`;
             axios.post(endpoint,)
             .then((response) => {
                 console.log(response)

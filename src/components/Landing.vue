@@ -174,7 +174,7 @@ export default {
   },
   async mounted () {
     await this.setProvider();
-      let endpoint = 'https://vue-ui-test.herokuapp.com/api/get-sell-orders';
+      let endpoint = 'https://vue-app-djnd6.ondigitalocean.app/api/get-sell-orders';
             axios.get(endpoint).then((response) => {
                 this.sellOrders = response.data;
             }).catch(error => {
@@ -303,7 +303,7 @@ export default {
     getOrders(e) {
         e.preventDefault();
         console.log("fetching order")
-      let endpoint = `https://vue-ui-test.herokuapp.com/api/check-order`;
+      let endpoint = `https://vue-app-djnd6.ondigitalocean.app/api/check-order`;
             axios.get(endpoint, {params:{address: this.ethAddress}}).then((response) => {
                 this.orders = response.data;
             }).catch(error => {
@@ -403,7 +403,7 @@ export default {
     } */
 
       placeOrder(amount) {
-                let endpoint = 'https://vue-ui-test.herokuapp.com/api/create-order';
+                let endpoint = 'https://vue-app-djnd6.ondigitalocean.app/api/create-order';
                 this.orderItem.user= this.ethAddress;
                 this.orderItem.status= 'Pending'; 
                 var day= new Date();
@@ -426,7 +426,7 @@ export default {
             },
 
       placeSellOrder(amount) {
-                let endpoint = 'https://vue-ui-test.herokuapp.com/api/create-sell-order';
+                let endpoint = 'https://vue-app-djnd6.ondigitalocean.app/api/create-sell-order';
                 this.sellOrderItem.user= this.ethAddress;
                 this.sellOrderItem.status= 'Submitted'; 
                 var day= new Date();

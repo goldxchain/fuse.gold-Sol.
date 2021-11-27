@@ -11,7 +11,9 @@ const OrderRoute = require('./order.route')
 mongoose.Promise = global.Promise;
 mongoose.connect(mongoDb.database, {
     useUnifiedTopology: true,
-    useNewUrlParser: true
+    useNewUrlParser: true,
+    tls: true,
+    tlsCAFile: 'ca-certificate.crt'
 }).then(() => {
   console.log('Database connected!')
 },

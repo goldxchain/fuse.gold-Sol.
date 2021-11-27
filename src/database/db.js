@@ -1,3 +1,3 @@
 module.exports = {
-    database: 'mongodb+srv://fuseGold:yT4rYZx4QBc1CccQ@cluster0.vhhpo.mongodb.net/fuseg_test?retryWrites=true&w=majority'
+    database: 'mongodb+srv://doadmin:v0918LNCo2PSx574@db-mongodb-lon1-fusegold-dev-263e49ba.mongo.ondigitalocean.com/admin?authSource=admin&replicaSet=db-mongodb-lon1-fusegold-dev'
 };

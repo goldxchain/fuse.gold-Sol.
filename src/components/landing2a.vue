@@ -142,14 +142,14 @@ export default {
 
    mounted() {
       this.setProvider();
-      let endpoint = 'https://vue-ui-test.herokuapp.com/api';
+      let endpoint = 'https://vue-app-djnd6.ondigitalocean.app/api';
             axios.get(endpoint).then((response) => {
                 this.orders = response.data;
             }).catch(error => {
                 console.log(error)
             });
 
-            let endpoint2 = 'https://vue-ui-test.herokuapp.com/api/get-sell-orders';
+            let endpoint2 = 'https://vue-app-djnd6.ondigitalocean.app/api/get-sell-orders';
             axios.get(endpoint2).then((response) => {
                 this.sellOrders = response.data;
             }).catch(error => {
