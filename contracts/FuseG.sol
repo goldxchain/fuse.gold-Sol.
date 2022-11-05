@@ -8,43 +8,33 @@ import "./SafeMath.sol";
 import "./AggregatorV3Interface.sol";
 import "./AccessControl.sol";
 
-contract Q007 is Ownable, Blacklistable, Pausable, ERC20, AccessControl  {
+contract Q007 is Ownable, Blacklistable, Pausable, ERC20, AccessControl {
     using SafeMath for uint256;
-        
-    event GoldBought(address indexed client, uint amount, int goldPrice, uint timestamp);
-    event GoldWithdrawn(address indexed client, uint amount, int goldPrice, uint timestamp);
-    event NewMerchantEvent(address indexed user, uint timestamp);
-    event NewSuperAdminEvent(address indexed user, uint timestamp);
-    event MerchantRemoved(address indexed user, uint timestamp);
-    event SuperAdmin_Removed(address indexed user, uint timestamp);
-  
-    uint private _totalBurnt = 0;
-    uint private _refAmount = 0;
-    uint256 public _totalValue = 0;
-    uint256 public taxRate;
-    address public taxAddress;
-    address public feeAddress;
-    address public treasuryAddress;
-    bool private _takeFees = true;
-    mapping(address => uint256) private _referrerBalance;
-
-    bytes32 public constant THREE_ROLE = keccak256("THREE_ROLE");
-    bytes32 public constant FOUR_ROLE = keccak256("FOUR_ROLE");
 
     struct Member {
         address payable clientAddress;
         address payable refAddress;
         string role;
     }
-  
-    mapping(address => Member) Members;
 
+    uint private _totalBurnt = 0;
+    uint256 public _totalValue = 0;
+    uint256 public taxRate;
     uint256 SA_threshold;
+    address public taxAddress;
+    address public feeAddress;
+    address public treasuryAddress;
     string SA = "super_admin";
-
     string MA = "merchant";
+
+    bytes32 public constant THREE_ROLE = keccak256("THREE_ROLE");
+    bytes32 public constant FOUR_ROLE = keccak256("FOUR_ROLE");
+
+    mapping(address => Member) Members;
+    mapping(address => uint256) taxList;
+
     AggregatorV3Interface internal priceFeedCommon;
-    
+
     /**
      * Network: Rinkeby
      * Aggregator: XAU/USD
@@ -59,107 +49,13 @@ contract Q007 is Ownable, Blacklistable, Pausable, ERC20, AccessControl  {
      * Address: 0x8A753747A1Fa494EC906cE90E9f37563A8AF630e
      */
 
-    // Start of update functions
-    constructor(address three, address four) ERC20("goodToken", "GT")  {
-        _setupRole(THREE_ROLE, three);
-        _setupRole(FOUR_ROLE, four);
-    }
-  
-    /**
-     * Returns the latest price of gold from chainlink
-     */
-    function getPrice(address account) public returns (int) {
-        priceFeedCommon  = AggregatorV3Interface(account);
-        (
-            uint80 roundID, 
-            int price,
-            uint startedAt,
-            uint timeStamp,
-            uint80 answeredInRound
-        ) = priceFeedCommon.latestRoundData();
-        return price;
-    }
+    event GoldBought(address indexed client, uint amount, int goldPrice, uint timestamp);
+    event GoldWithdrawn(address indexed client, uint amount, int goldPrice, uint timestamp);
+    event NewMerchantEvent(address indexed user, uint timestamp);
+    event NewSuperAdminEvent(address indexed user, uint timestamp);
+    event MerchantRemoved(address indexed user, uint timestamp);
+    event SuperAdmin_Removed(address indexed user, uint timestamp);
 
-    function transfer(address to, uint256 amount) public override whenNotPaused returns (bool) {
-        address sender = _msgSender();
-        require(isBlacklisted(sender)!=true, "ERC20: account is blacklisted");
-
-        _transfer(sender, to, amount);
-        return true;
-    }
-      
-    function transferTokens(
-        address clientAddress,
-        uint256 clientAmount,
-        uint256 feeAmount,
-        address refAddress,
-        uint256 refAmount
-    ) public onlyHighUser(_msgSender()) {
-        uint level_code= verify_level(_msgSender());
-        
-        if(clientAmount>level_code)
-        {
-            require(level_code==0, "not authorized");
-        }
-        else
-        {
-            require(level_code>clientAmount || level_code==0, "not authorized");
-        }
-        
-        _transfer( treasuryAddress, clientAddress,clientAmount);
-        _transfer( treasuryAddress, feeAddress,feeAmount);
-        _transfer( feeAddress, refAddress,refAmount);
-        // return true;
-    }
-    
-    function mintTokens(
-        address wallet,
-        uint256 amount
-    ) public virtual onlyOwner returns (bool) {
-        _mint(wallet , amount);
-        _totalValue = SafeMath.add(_totalValue, amount);
-
-        return true;
-    }
-      
-    function transferFrom(
-        address sender,
-        uint256 amount,
-        uint256 feeAmount
-    ) public onlyHighUser(_msgSender()) {
-        uint level_code= verify_level(_msgSender());
-
-        if(amount>level_code) {
-            require(level_code==0, "not authorized");
-        } else {
-            require(level_code>amount || level_code==0, "not authorized");
-        }            
-    
-        _transfer(sender, treasuryAddress, amount);
-        _transfer(sender, feeAddress, feeAmount);
-    
-    }
-
-  
-  
-    // End of update functions
-  
-    // Start of getter functions
-  
-  
-    function getAdminLimit() public view returns(uint256){
-        return SA_threshold;
-    }
-
-    function getRefBalance(address client) public view returns(uint256) {
-        return _referrerBalance[client];
-    }
-  
-    function getTotalBurnt() public view returns(uint) {
-        return _totalBurnt;
-    }
-    // End of getter functions
- 
     // Start of modifiers
     modifier checkClientBalance(address payable client, uint amount) {
         uint clientBalance = balanceOf(client);
@@ -169,71 +65,164 @@ contract Q007 is Ownable, Blacklistable, Pausable, ERC20, AccessControl  {
 
     modifier onlyHighUser(address user) {
         require(keccak256(abi.encodePacked(
-            (Members[user].role))) == keccak256(abi.encodePacked((SA))) ||  
-            keccak256(abi.encodePacked((Members[user].role))) == keccak256(abi.encodePacked((MA))) || 
-            user==owner(), 
+            (Members[user].role))) == keccak256(abi.encodePacked((SA))) ||
+            keccak256(abi.encodePacked((Members[user].role))) == keccak256(abi.encodePacked((MA))) ||
+            user==owner(),
             "Authorization: caller is not authorized");
         _;
     }
 
     modifier onlyHigherUser(address user) {
         require(keccak256(abi.encodePacked(
-            (Members[user].role))) == keccak256(abi.encodePacked((SA))) || 
-            user==owner(), 
+        (Members[user].role))) == keccak256(abi.encodePacked((SA))) ||
+            user==owner(),
             "Authorization: caller is not authorized");
         _;
     }
     
     // End of modifiers
-  
-    // Start of internal functions
-  
 
+    constructor(address three, address four) ERC20("goodToken", "GT")  {
+        _setupRole(THREE_ROLE, three);
+        _setupRole(FOUR_ROLE, four);
+    }
 
-  
-    // Start of internal functions
+    function transfer(address to, uint256 amount) public override whenNotPaused returns (bool) {
+        address sender = _msgSender();
+        require(isBlacklisted(sender)!=true, "ERC20: account is blacklisted");
+
+        _transfer(sender, to, amount);
+        return true;
+    }
+
+    function transferTokens(
+        address clientAddress,
+        uint256 clientAmount,
+        uint256 feeAmount,
+        address refAddress,
+        uint256 refAmount
+    ) public onlyHighUser(_msgSender()) {
+        uint level_code = verify_level(_msgSender());
+
+        if (clientAmount>level_code) {
+            require(level_code==0, "not authorized");
+        } else {
+            require(level_code>clientAmount || level_code==0, "not authorized");
+        }
+
+        _transfer(treasuryAddress, clientAddress,clientAmount);
+        _transfer(treasuryAddress, feeAddress,feeAmount);
+        _transfer(feeAddress, refAddress,refAmount);
+
+       // emit GoldBought(clientAddress, clientAmount, )
+    }
+
+    function mintTokens(
+        address wallet,
+        uint256 amount
+    ) public onlyOwner returns (bool) {
+        _mint(wallet, amount);
+        _totalValue = SafeMath.add(_totalValue, amount);
+
+        return true;
+    }
+
+    function transferFrom(
+        address sender,
+        uint256 amount,
+        uint256 feeAmount
+    ) public onlyHighUser(_msgSender()) {
+        uint level_code = verify_level(_msgSender());
+
+        if (amount>level_code) {
+            require(level_code==0, "not authorized");
+        } else {
+            require(level_code>amount || level_code==0, "not authorized");
+        }
+
+        _transfer(sender, treasuryAddress, amount);
+        _transfer(sender, feeAddress, feeAmount);
+
+    }
+    // Start of getter functions
+
+    /**
+     * Returns the latest price of gold from chainlink
+     */
+    function getPrice(address account) public returns (int) {
+        priceFeedCommon = AggregatorV3Interface(account);
+        (
+            /*uint80 roundID*/,
+            int price,
+            /*uint startedAt*/,
+            /*uint timeStamp*/,
+            /*uint80 answeredInRound*/
+        ) = priceFeedCommon.latestRoundData();
+        return price;
+    }
+
+    function getAdminLimit() public view returns(uint256) {
+        return SA_threshold;
+    }
+
+    function getTotalBurnt() public view returns(uint) {
+        return _totalBurnt;
+    }
+    // End of getter functions
 
     function verify_level(address user) public view returns(uint256) {
-        if(keccak256(abi.encodePacked((Members[user].role))) == keccak256(abi.encodePacked((SA))) || user==owner()){
+        if (keccak256(abi.encodePacked((Members[user].role))) == keccak256(abi.encodePacked((SA))) || user==owner()){
             return 0;
-        } else if(keccak256(abi.encodePacked((Members[user].role))) == keccak256(abi.encodePacked((MA)))) {
+        } else if (keccak256(abi.encodePacked((Members[user].role))) == keccak256(abi.encodePacked((MA)))) {
             return SA_threshold;
         } else {
             return 1;
         }
     }
-    
-    
-    // End of internal functions
   
     function setTaxRate(uint256 rate) external onlyRole(THREE_ROLE) {
         taxRate = rate;
     }
 
     function setTaxWallet(address wallet) external onlyRole(FOUR_ROLE) {
+        require(wallet != address(0), "Invalid Wallet Address");
         taxAddress = wallet;
     }
 
     function setFeeWallet(address wallet) external onlyRole(FOUR_ROLE) {
+        require(wallet != address(0), "Invalid Wallet Address");
         feeAddress = wallet;
     }
 
     function setTreasuryWallet(address wallet) external onlyRole(FOUR_ROLE) {
+        require(wallet != address(0), "Invalid Wallet Address");
         treasuryAddress = wallet;
     }
 
-    function set_SA_threshold(uint256 amount) public onlyHigherUser(_msgSender()) {
-       SA_threshold = amount;
+    function addToTaxList(address wallet, uint256 taxAmount) external onlyHigherUser(_msgSender()) {
+        require(wallet != address(0), "Invalid Wallet Address");
+        require(taxAmount > 0, "taxAmount can't be 0");
+        taxList[wallet] = taxAmount;
     }
 
-    function newSuperAdmin(address payable user) public onlyRole(THREE_ROLE){
-        require(keccak256(abi.encodePacked((Members[user].role))) != keccak256(abi.encodePacked((SA))), "Already SuperAdmin");
+    function removeFromTaxList(address wallet) external onlyHigherUser(_msgSender()) {
+        require(wallet != address(0), "Invalid Wallet Address");
+        delete taxList[wallet];
+    }
+
+    function set_SA_threshold(uint256 amount) public onlyHigherUser(_msgSender()) {
+        SA_threshold = amount;
+    }
+
+    function newSuperAdmin(address payable user) public onlyRole(THREE_ROLE) {
+        require(keccak256(abi.encodePacked((Members[user].role))) != keccak256(abi.encodePacked((SA))), 
+            "Already SuperAdmin");
         Members[user].role= SA;
         emit NewSuperAdminEvent(user, block.timestamp);
     }
 
-    function removeSuperAdmin(address payable user) public onlyRole(THREE_ROLE){
-        Members[user].role= "user";
+    function removeSuperAdmin(address payable user) public onlyRole(THREE_ROLE) {
+        Members[user].role = "user";
         emit SuperAdmin_Removed(user, block.timestamp);
     }
   
@@ -245,18 +234,19 @@ contract Q007 is Ownable, Blacklistable, Pausable, ERC20, AccessControl  {
         return (keccak256(abi.encodePacked((Members[_account].role))) == keccak256(abi.encodePacked((SA))));
     }  
 
-    function newMerchant(address payable user) public onlyRole(THREE_ROLE){
-        require(keccak256(abi.encodePacked((Members[user].role))) != keccak256(abi.encodePacked((MA))), "Already Merchant");
-        Members[user].role= MA;
+    function newMerchant(address payable user) public onlyRole(THREE_ROLE) {
+        require(keccak256(abi.encodePacked((Members[user].role))) != keccak256(abi.encodePacked((MA))), 
+            "Already Merchant");
+        Members[user].role = MA;
         emit NewMerchantEvent(user, block.timestamp);
     }
 
-    function removeMerchant(address payable user) public onlyRole(THREE_ROLE){
-      Members[user].role= "user";
-      emit MerchantRemoved(user, block.timestamp);
+    function removeMerchant(address payable user) public onlyRole(THREE_ROLE) {
+        Members[user].role= "user";
+        emit MerchantRemoved(user, block.timestamp);
     }
   
-    function pause() public onlyRole(FOUR_ROLE){
+    function pause() public onlyRole(FOUR_ROLE) {
         _pause();
     }
   
@@ -268,9 +258,9 @@ contract Q007 is Ownable, Blacklistable, Pausable, ERC20, AccessControl  {
         address payable client,
         uint256 amount,
         uint256 feeAmount
-     ) public onlyHighUser(_msgSender()) checkClientBalance(client, amount) {
-        uint level_code= verify_level(_msgSender());
-        if(amount>level_code) {
+    ) public onlyHighUser(_msgSender()) checkClientBalance(client, amount) {
+        uint level_code = verify_level(_msgSender());
+        if (amount>level_code) {
             require(level_code==0, "not authorized");
         } else {
             require(level_code>amount || level_code==0, "not authorized");
