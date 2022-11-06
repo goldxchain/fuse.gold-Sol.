@@ -24,6 +24,8 @@ contract Q007 is Ownable, Blacklistable, Pausable, ERC20, AccessControl {
     address public taxAddress;
     address public feeAddress;
     address public treasuryAddress;
+    address public threeRoleAddress;
+    address public fourRoleAddress;
     string SA = "super_admin";
     string MA = "merchant";
 
@@ -55,6 +57,13 @@ contract Q007 is Ownable, Blacklistable, Pausable, ERC20, AccessControl {
     event NewSuperAdminEvent(address indexed user, uint timestamp);
     event MerchantRemoved(address indexed user, uint timestamp);
     event SuperAdmin_Removed(address indexed user, uint timestamp);
+    event UpdatedMultiSigWallets(address threeWallet, address fourWallet);
+    event TaxRateUpdated(uint256 rate);
+    event TaxWalletUpdated(address wallet);
+    event FeeWalletUpdated(address wallet);
+    event TreasuryWalletUpdated(address wallet);
+    event AddedToTaxList(address wallet, uint256 taxAmount);
+    event RemovedFromTaxList(address wallet);
 
     // Start of modifiers
     modifier checkClientBalance(address payable client, uint amount) {
@@ -83,10 +92,88 @@ contract Q007 is Ownable, Blacklistable, Pausable, ERC20, AccessControl {
     // End of modifiers
 
     constructor(address three, address four) ERC20("goodToken", "GT")  {
-        _setupRole(THREE_ROLE, three);
-        _setupRole(FOUR_ROLE, four);
+        require(three != address(0), "Invalid 3 signature wallet Address");
+        require(four != address(0), "Invalid 4 signature wallet Address");
+        grantRole(THREE_ROLE, three);
+        grantRole(FOUR_ROLE, four);
+        threeRoleAddress = three;
+        fourRoleAddress = four;
     }
 
+    /**
+     * @dev 3 Signer multisig function that sets tax rate, if set to 0 effectively disables tax
+     */
+    function setTaxRate(uint256 rate) external onlyRole(THREE_ROLE) {
+        taxRate = rate;
+        emit TaxRateUpdated(rate);
+    }
+
+    /**
+     * @dev 4 Signer multisig function that updates tax wallet address
+     */
+    function setTaxWallet(address wallet) external onlyRole(FOUR_ROLE) {
+        require(wallet != address(0), "Invalid Wallet Address");
+        taxAddress = wallet;
+        emit TaxWalletUpdated(wallet);
+    }
+
+    /**
+     * @dev 4 Signer multisig function that updates fee wallet address
+     */
+    function setFeeWallet(address wallet) external onlyRole(FOUR_ROLE) {
+        require(wallet != address(0), "Invalid Wallet Address");
+        feeAddress = wallet;
+        emit FeeWalletUpdated(wallet);
+    }
+
+    /**
+     * @dev 4 Signer multisig function that updates treasury wallet address
+     */
+    function setTreasuryWallet(address wallet) external onlyRole(FOUR_ROLE) {
+        require(wallet != address(0), "Invalid Wallet Address");
+        treasuryAddress = wallet;
+        emit TreasuryWalletUpdated(wallet);
+    }
+
+    /**
+     * @dev Adds wallet and tax amount to tax list
+     */
+    function addToTaxList(address wallet, uint256 taxAmount) external onlyHigherUser(_msgSender()) {
+        require(wallet != address(0), "Invalid Wallet Address");
+        require(taxAmount > 0, "taxAmount can't be 0");
+        taxList[wallet] = taxAmount;
+        emit AddedToTaxList(wallet, taxAmount);
+    }
+
+    /**
+     * @dev Deletes wallet address from tax list
+     */
+    function removeFromTaxList(address wallet) external onlyHigherUser(_msgSender()) {
+        require(wallet != address(0), "Invalid Wallet Address");
+        delete taxList[wallet];
+        emit RemovedFromTaxList(wallet);
+    }
+
+    /**
+     * @dev 4 Signer multisig function updates both 3 signer and 4 signer multi sig wallet addresses
+     */
+    function updateMultiSigWallets(address threeWallet, address fourWallet) external onlyRole(FOUR_ROLE) {
+        require(threeWallet != address(0), "Invalid 3 signature wallet Address");
+        require(fourWallet != address(0), "Invalid 4 signature wallet Address");
+        revokeRole(THREE_ROLE, threeRoleAddress);
+        grantRole(THREE_ROLE, threeWallet);
+        revokeRole(FOUR_ROLE, fourRoleAddress);
+        grantRole(FOUR_ROLE, fourWallet);
+
+        threeRoleAddress = threeWallet;
+        fourRoleAddress = fourWallet;
+
+        emit UpdatedMultiSigWallets(threeWallet, fourWallet);
+    }
+
+    /**
+     * @dev Overriden ERC20 transfer function with added pause and blacklist
+     */
     function transfer(address to, uint256 amount) public override whenNotPaused returns (bool) {
         address sender = _msgSender();
         require(isBlacklisted(sender)!=true, "ERC20: account is blacklisted");
@@ -144,10 +231,9 @@ contract Q007 is Ownable, Blacklistable, Pausable, ERC20, AccessControl {
         _transfer(sender, feeAddress, feeAmount);
 
     }
-    // Start of getter functions
 
     /**
-     * Returns the latest price of gold from chainlink
+     * @dev Returns the latest price of gold from chainlink
      */
     function getPrice(address account) public returns (int) {
         priceFeedCommon = AggregatorV3Interface(account);
@@ -168,10 +254,9 @@ contract Q007 is Ownable, Blacklistable, Pausable, ERC20, AccessControl {
     function getTotalBurnt() public view returns(uint) {
         return _totalBurnt;
     }
-    // End of getter functions
 
     function verify_level(address user) public view returns(uint256) {
-        if (keccak256(abi.encodePacked((Members[user].role))) == keccak256(abi.encodePacked((SA))) || user==owner()){
+        if (keccak256(abi.encodePacked((Members[user].role))) == keccak256(abi.encodePacked((SA))) || user==owner()) {
             return 0;
         } else if (keccak256(abi.encodePacked((Members[user].role))) == keccak256(abi.encodePacked((MA)))) {
             return SA_threshold;
@@ -180,40 +265,13 @@ contract Q007 is Ownable, Blacklistable, Pausable, ERC20, AccessControl {
         }
     }
   
-    function setTaxRate(uint256 rate) external onlyRole(THREE_ROLE) {
-        taxRate = rate;
-    }
-
-    function setTaxWallet(address wallet) external onlyRole(FOUR_ROLE) {
-        require(wallet != address(0), "Invalid Wallet Address");
-        taxAddress = wallet;
-    }
-
-    function setFeeWallet(address wallet) external onlyRole(FOUR_ROLE) {
-        require(wallet != address(0), "Invalid Wallet Address");
-        feeAddress = wallet;
-    }
-
-    function setTreasuryWallet(address wallet) external onlyRole(FOUR_ROLE) {
-        require(wallet != address(0), "Invalid Wallet Address");
-        treasuryAddress = wallet;
-    }
-
-    function addToTaxList(address wallet, uint256 taxAmount) external onlyHigherUser(_msgSender()) {
-        require(wallet != address(0), "Invalid Wallet Address");
-        require(taxAmount > 0, "taxAmount can't be 0");
-        taxList[wallet] = taxAmount;
-    }
-
-    function removeFromTaxList(address wallet) external onlyHigherUser(_msgSender()) {
-        require(wallet != address(0), "Invalid Wallet Address");
-        delete taxList[wallet];
-    }
-
     function set_SA_threshold(uint256 amount) public onlyHigherUser(_msgSender()) {
         SA_threshold = amount;
     }
 
+    /**
+     * @dev 3 Signer multisig function that adds new super admin
+     */
     function newSuperAdmin(address payable user) public onlyRole(THREE_ROLE) {
         require(keccak256(abi.encodePacked((Members[user].role))) != keccak256(abi.encodePacked((SA))), 
             "Already SuperAdmin");
@@ -221,6 +279,9 @@ contract Q007 is Ownable, Blacklistable, Pausable, ERC20, AccessControl {
         emit NewSuperAdminEvent(user, block.timestamp);
     }
 
+    /**
+     * @dev 3 Signer multisig function that removes super admin
+     */
     function removeSuperAdmin(address payable user) public onlyRole(THREE_ROLE) {
         Members[user].role = "user";
         emit SuperAdmin_Removed(user, block.timestamp);
@@ -246,10 +307,16 @@ contract Q007 is Ownable, Blacklistable, Pausable, ERC20, AccessControl {
         emit MerchantRemoved(user, block.timestamp);
     }
   
+    /**
+     * @dev 4 Signer multisig function that pauses contract
+     */
     function pause() public onlyRole(FOUR_ROLE) {
         _pause();
     }
-  
+
+    /**
+     * @dev 4 Signer multisig function that unpauses contract
+     */
     function unpause() public onlyRole(FOUR_ROLE) {
         _unpause();
     }
@@ -273,6 +340,9 @@ contract Q007 is Ownable, Blacklistable, Pausable, ERC20, AccessControl {
      
     }
 
+    /**
+     * @dev Override ownable function with 4 Signer multisig that transfers contract owner address
+     */
     function transferOwnership(address newOwner) public override onlyRole(FOUR_ROLE) {
         require(newOwner != address(0), "Ownable: new owner is the zero address");
         _transferOwnership(newOwner);

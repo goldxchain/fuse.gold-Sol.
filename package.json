@@ -6,15 +6,21 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "solhint": "./node_modules/.bin/solhint -f table contracts/*.sol",
-    "solium": "solium -d contracts/"
+    "solium": "solium -d contracts/",
+    "deploytest": "npx hardhat run --network testnet scripts/deploy.js",
+    "verifytest": "npx hardhat verify --network testnet"
   },
   "author": "",
   "license": "ISC",
   "devDependencies": {
+    "@nomiclabs/hardhat-etherscan": "^3.1.2",
     "hardhat": "^2.12.2"
   },
   "dependencies": {
     "@nomicfoundation/hardhat-toolbox": "^1.0.2",
+    "@nomiclabs/hardhat-ethers": "^2.2.1",
+    "@nomiclabs/hardhat-waffle": "^2.0.3",
+    "dotenv": "^16.0.3",
     "solc": "file:.8.17",
     "solhint": "^3.3.7"
   }
