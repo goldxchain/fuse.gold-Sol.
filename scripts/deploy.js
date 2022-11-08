@@ -7,12 +7,11 @@ async function main() {
   const fuseG = await FuseG.deploy(threeAddress, fourAddress);
 
   await fuseG.deployed();
+  console.log(fuseG.owner);
 
   console.log("Fuse Gold Contract deployed to " + fuseG.address);
 }
 
-// We recommend this pattern to be able to use async/await everywhere
-// and properly handle errors.
 main().catch((error) => {
   console.error(error);
   process.exitCode = 1;
