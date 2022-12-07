@@ -1,7 +1,9 @@
 require('@nomiclabs/hardhat-waffle');
 require('@nomiclabs/hardhat-ethers');
 require("@nomiclabs/hardhat-etherscan");
-require('dotenv').config();
+require('dotenv').config()
+require('solidity-docgen');
+
 
 const { mnemonic } = require('./secrets.json');
 
@@ -38,6 +40,18 @@ module.exports = {
     mainnet: {
       url: "https://bsc-dataseed.binance.org/",
       chainId: 56,
+      gasPrice: 20000000000,
+      accounts: {mnemonic: mnemonic}
+    },
+    goldXtestnet: {
+      url:  "https://testnet-rpc.goldxchain.io",
+      chainId: 22324,
+      gasPrice: 20000000000,
+      accounts: {mnemonic: mnemonic}
+    },
+    goldXmainnet: {
+      url:  " https://mainnet-rpc.goldxchain.io ",
+      chainId: 42355,
       gasPrice: 20000000000,
       accounts: {mnemonic: mnemonic}
     }

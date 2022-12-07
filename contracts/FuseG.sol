@@ -6,49 +6,34 @@ import "./Pausable.sol";
 import "./ERC20.sol";
 import "./AggregatorV3Interface.sol";
 import "./AccessControl.sol";
+import "./IRewardVault.sol";
 
-contract Q007 is Ownable, Blacklistable, Pausable, ERC20, AccessControl {
+// @title Fuse Gold Token Contract
+contract FuseG is Ownable, Blacklistable, Pausable, ERC20, AccessControl {
 
-    struct Member {
-        address payable clientAddress;
-        address payable refAddress;
-        string role;
-    }
-
-    uint private _totalBurnt = 0;
-    uint256 private taxRatePower = 4;
     uint256 public _totalValue = 0;
     uint256 public taxRate;
-    uint256 SA_threshold;
-    address public taxAddress = 0x32Ac66Ea2de678D2edc66486Dc8cc2Aa0Fff82d8; //Test addresses
-    address public feeAddress = 0xDC8F0f1795B99B5cC2B4619C25BA03aF4b6F905C;
-    address public treasuryAddress = 0x47205d12a931255D46f39100f594bA6E749D40B8;
+    address public taxAddress;
+    address public feeAddress;
+    address public treasuryAddress;
     address public threeRoleAddress;
     address public fourRoleAddress;
-    string SA = "super_admin";
-    string MA = "merchant";
+    address public rewardVaultAddress;
+    uint256 private constant taxRatePower = 4;
+    uint256 private _totalBurnt = 0;
+    uint256 private adminLimit;
+    uint256 private _dexTotal = 0;
 
     bytes32 public constant THREE_ROLE = keccak256("THREE_ROLE");
     bytes32 public constant FOUR_ROLE = keccak256("FOUR_ROLE");
+    bytes32 public constant SUPER_ADMIN = keccak256("SUPER_ADMIN");
+    bytes32 public constant MERCHANT = keccak256("MERCHANT");
 
-    mapping(address => Member) Members;
+    mapping(address => bytes32) Members;
+    mapping(address => bool) public DexList;
     mapping(address => uint256) public taxList;
 
     AggregatorV3Interface internal priceFeedCommon;
-
-    /**
-     * Network: Rinkeby
-     * Aggregator: XAU/USD
-     * Address: 0x81570059A0cb83888f1459Ec66Aad1Ac16730243
-     * Aggregator: BTC/USD
-     * Address: 0xECe365B379E1dD183B20fc5f022230C044d51404
-     * Aggregator: BNB/USD
-     * Address: 0xcf0f51ca2cDAecb464eeE4227f5295F2384F84ED
-     * Aggregator: LINK/USD
-     * Address: 0xd8bD0a1cB028a31AA859A21A3758685a95dE4623
-     * Aggregator: ETH/USD
-     * Address: 0x8A753747A1Fa494EC906cE90E9f37563A8AF630e
-     */
 
     event GoldBought(address indexed client, uint amount, int goldPrice, uint timestamp);
     event GoldWithdrawn(address indexed client, uint amount, int goldPrice, uint timestamp);
@@ -61,47 +46,67 @@ contract Q007 is Ownable, Blacklistable, Pausable, ERC20, AccessControl {
     event TaxWalletUpdated(address wallet);
     event FeeWalletUpdated(address wallet);
     event TreasuryWalletUpdated(address wallet);
+    event RewardVaultSet(address wallet);
     event AddedToTaxList(address wallet, uint256 taxAmount);
     event RemovedFromTaxList(address wallet);
     event PerformedTax(address wallet, uint256 taxAmount);
 
     // Start of modifiers
-    modifier checkClientBalance(address payable client, uint amount) {
+    modifier checkClientBalance(address client, uint amount) {
         uint clientBalance = balanceOf(client);
-        require(clientBalance >= amount, "Inefficient balance");
+        require(clientBalance >= amount, "Insufficient balance");
         _;
     }
 
     modifier onlyHighUser(address user) {
-        require(keccak256(abi.encodePacked(
-            (Members[user].role))) == keccak256(abi.encodePacked((SA))) ||
-            keccak256(abi.encodePacked((Members[user].role))) == keccak256(abi.encodePacked((MA))) ||
+        require(hasRole(SUPER_ADMIN, user) ||
+            hasRole(MERCHANT, user) ||
             user==owner(),
             "Authorization: caller is not authorized");
         _;
     }
 
     modifier onlyHigherUser(address user) {
-        require(keccak256(abi.encodePacked(
-        (Members[user].role))) == keccak256(abi.encodePacked((SA))) ||
-            user==owner(),
+        require(hasRole(SUPER_ADMIN, user) || user==owner(),
             "Authorization: caller is not authorized");
         _;
     }
     
     // End of modifiers
-    constructor(address three, address four) ERC20("goodToken", "GT")  {
-        require(three != address(0), "Invalid 3 signature wallet Address");
-        require(four != address(0), "Invalid 4 signature wallet Address");
-        _setupRole(THREE_ROLE, three);
-        _setupRole(FOUR_ROLE, four);
-        threeRoleAddress = three;
-        fourRoleAddress = four;
+
+    /**
+     * @notice Fuse Gold token contstructor
+     * @param _threeWallet Multi sig wallet address with three signers
+     * @param _fourWallet Multi sig wallet address with four signers
+     * @param _taxWallet Wallet used to receive tax
+     * @param _feeWallet Wallet used to receive fees
+     * @param _treasuryWallet Treasury wallet address
+     */
+    constructor(
+        address _threeWallet, 
+        address _fourWallet,
+        address _taxWallet,
+        address _feeWallet,
+        address _treasuryWallet
+        ) ERC20("FuseGold", "FuseG") {
+        require(_threeWallet != address(0), "Invalid 3 signature wallet Address");
+        require(_fourWallet != address(0), "Invalid 4 signature wallet Address");
+        require(_taxWallet != address(0), "Invalid tax wallet Address");
+        require(_feeWallet != address(0), "Invalid fee wallet Address");
+        require(_treasuryWallet != address(0), "Invalid treasury wallet Address");
+        _setupRole(THREE_ROLE, _threeWallet);
+        _setupRole(FOUR_ROLE, _fourWallet);
+        _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
+        threeRoleAddress = _threeWallet;
+        fourRoleAddress = _fourWallet;
+        taxAddress = _taxWallet;
+        feeAddress = _feeWallet;
+        treasuryAddress = _treasuryWallet;
     }
 
     /**
-     * @dev 3 Signer multisig function that sets tax rate, if set to 0 effectively disables tax
-     * 100 = 1%, 1 = 0.01% etc
+     * @notice 3 Signer multisig function that sets tax rate, if set to 0 effectively disables tax
+     * @param rate New tax rate (100 = 1%, 1 = 0.01% etc)
      */
     function setTaxRate(uint256 rate) external onlyRole(THREE_ROLE) {
         taxRate = rate;
@@ -109,34 +114,68 @@ contract Q007 is Ownable, Blacklistable, Pausable, ERC20, AccessControl {
     }
 
     /**
-     * @dev 4 Signer multisig function that updates tax wallet address
+     * @notice 4 Signer multisig function that updates tax wallet address
+     * @param wallet New tax wallet address
      */
     function setTaxWallet(address wallet) external onlyRole(FOUR_ROLE) {
-        require(wallet != address(0), "Invalid Wallet Address");
+        require(wallet != address(0), "Invalid tax wallet Address");
         taxAddress = wallet;
         emit TaxWalletUpdated(wallet);
     }
 
     /**
-     * @dev 4 Signer multisig function that updates fee wallet address
+     * @notice 4 Signer multisig function that updates fee wallet address
+     * @param wallet New fee wallet address
      */
     function setFeeWallet(address wallet) external onlyRole(FOUR_ROLE) {
-        require(wallet != address(0), "Invalid Wallet Address");
+        require(wallet != address(0), "Invalid fee wallet Address");
         feeAddress = wallet;
         emit FeeWalletUpdated(wallet);
     }
 
     /**
-     * @dev 4 Signer multisig function that updates treasury wallet address
+     * @notice 4 Signer multisig function that updates treasury wallet address
+     * @param wallet New treasury wallet address
      */
     function setTreasuryWallet(address wallet) external onlyRole(FOUR_ROLE) {
-        require(wallet != address(0), "Invalid Wallet Address");
+        require(wallet != address(0), "Invalid treasury wallet Address");
         treasuryAddress = wallet;
         emit TreasuryWalletUpdated(wallet);
     }
 
     /**
-     * @dev Adds wallet and tax amount to tax list, also can update amount for specific wallet
+     * @notice 4 Signer multisig function that updates treasury wallet address
+     * @param wallet New treasury wallet address
+     */
+    function setRewardVault(address wallet) external onlyOwner {
+        require(wallet != address(0), "Invalid reward vault contract Address");
+        rewardVaultAddress = wallet;
+        emit RewardVaultSet(wallet);
+    }
+
+    /**
+     * @notice Adds a new dex contract to the list
+     * @param dexContract Contract address of dex pair
+     */
+    function addDexAddress(address dexContract) external onlyOwner {
+        require(dexContract != address(0), "Invalid DEX address");
+        DexList[dexContract] = true;
+    }
+
+    /**
+     * @notice Removes specified dex contract address to the list
+     * @param dexContract Contract address of dex to remove
+     */
+    function removeDexAddress(address dexContract) external onlyOwner {
+        require(dexContract != address(0), "Invalid DEX address");
+        require(isDex(dexContract), "DEX doesn't exist in list");
+        delete DexList[dexContract];
+    }
+
+    /**
+     * @notice Adds wallet and tax amount to tax list, also can update amount for specific wallet
+     * @param wallet New wallet to add to list
+     * @param taxAmount Tax rate for new wallet (100 = 1%, 1 = 0.01% etc)
      */
     function addToTaxList(address wallet, uint256 taxAmount) external onlyHigherUser(_msgSender()) {
         require(wallet != address(0), "Invalid Wallet Address");
@@ -146,7 +185,8 @@ contract Q007 is Ownable, Blacklistable, Pausable, ERC20, AccessControl {
     }
 
     /**
-     * @dev Deletes wallet address from tax list
+     * @notice Deletes wallet address from tax list
+     * @param wallet Wallet to be removed
      */
     function removeFromTaxList(address wallet) external onlyHigherUser(_msgSender()) {
         require(wallet != address(0), "Invalid Wallet Address");
@@ -156,32 +196,20 @@ contract Q007 is Ownable, Blacklistable, Pausable, ERC20, AccessControl {
     }
 
     /**
-     * @dev Returns true if specified wallet is in tac list
+     * @notice Returns true if specified wallet is in tax list
+     * @param wallet Wallet to check if currently is in list
      */
     function isSpecificTax(address wallet) public view returns (bool) {
         return taxList[wallet] != 0;
     }
 
-    function performTax(uint256 amount, uint256 specificTaxRate) internal {
-        require(specificTaxRate > 0, "Tax rate must be greater than 0");
-        address sender = _msgSender();
-        uint256 taxAmount;
-        uint256 totalTaxRate = 10 ** taxRatePower;
-        
-        taxAmount = amount * specificTaxRate / totalTaxRate;
-        require(balanceOf(sender) > (amount + taxAmount), "Insufficient balance");
-        _transfer(sender, taxAddress, taxAmount);
-
-        emit PerformedTax(sender, taxAmount);
-    }
-
     /**
-     * @dev Overriden ERC20 transfer function with added pause and blacklist
+     * @notice Overriden ERC20 transfer function with added pause and blacklist
      */
     function transfer(address to, uint256 amount) public override whenNotPaused returns (bool) {
 
         address sender = _msgSender();
-        require(isBlacklisted(sender)!=true, "ERC20: account is blacklisted");
+        require(isBlacklisted(sender)!=true, "FuseG: account is blacklisted");
 
         if(isSpecificTax(sender)) {
             performTax(amount, taxList[sender]);
@@ -189,11 +217,25 @@ contract Q007 is Ownable, Blacklistable, Pausable, ERC20, AccessControl {
             performTax(amount, taxRate);
         }
 
+        if(isDex(sender)) {
+            IRewardVault(rewardVaultAddress).mineGoldX(to, amount);
+            _dexTotal += amount;
+        }
+
         _transfer(sender, to, amount);
         return true;
     }
 
-    function transferTokens(
+    /**
+     * @notice Buy function for fuse gold, values will be calculated and passed to this function
+     * via the online platform. Calls GoldX RewardVault contract to mineGoldX tokens
+     * @param clientAddress Client wallet address the tokens are to be sent to
+     * @param clientAmount Amount of tokens to send to the Client Address from the Sender wallet address
+     * @param feeAmount Amount of tokens to be sent to the Fee wallet address from the Sender wallet address
+     * @param refAddress Referral wallet address the tokens are to be sent to for the referral rate
+     * @param refAmount Amount of tokens to be sent to the Referral wallet address from the Sender wallet address
+     */
+    function buyTokens(
         address clientAddress,
         uint256 clientAmount,
         uint256 feeAmount,
@@ -208,13 +250,23 @@ contract Q007 is Ownable, Blacklistable, Pausable, ERC20, AccessControl {
             require(level_code>clientAmount || level_code==0, "not authorized");
         }
 
-        _transfer(treasuryAddress, clientAddress,clientAmount);
-        _transfer(treasuryAddress, feeAddress,feeAmount);
-        _transfer(feeAddress, refAddress,refAmount);
+        _transfer(treasuryAddress, clientAddress, clientAmount);
+        _transfer(treasuryAddress, feeAddress, feeAmount);
+
+        if(refAddress != address(0)) {
+            _transfer(clientAddress, refAddress, refAmount);
+        }
+        
+        //mint GoldX
+        IRewardVault(rewardVaultAddress).mineGoldX(clientAddress, clientAmount);
 
        // emit GoldBought(clientAddress, clientAmount, )
     }
-
+     /**
+     * @notice Allows owner to mint tokens to specified wallet
+     * @param wallet Wallet to mint tokens to
+     * @param amount Amount of tokens to mint
+     */
     function mintTokens(
         address wallet,
         uint256 amount
@@ -225,7 +277,14 @@ contract Q007 is Ownable, Blacklistable, Pausable, ERC20, AccessControl {
         return true;
     }
 
-    function transferFrom(
+    /**
+     * @notice Fuse gold sell function, fees will be calculated via the fuse gold platform
+     * calls GoldX RewardVault contract to mineGoldX tokens
+     * @param sender Sender wallet address the tokens are to be sent from (seller)
+     * @param amount Amount of tokens to send to the treasury address from the Sender wallet address
+     * @param feeAmount Amount of tokens to be sent to the Fee wallet address from the Sender wallet address
+     */
+    function sellTokens(
         address sender,
         uint256 amount,
         uint256 feeAmount
@@ -241,10 +300,16 @@ contract Q007 is Ownable, Blacklistable, Pausable, ERC20, AccessControl {
         _transfer(sender, treasuryAddress, amount);
         _transfer(sender, feeAddress, feeAmount);
 
+        //mint GoldX
+        IRewardVault(rewardVaultAddress).mineGoldX(sender, amount);
+
     }
 
     /**
-     * @dev Returns the latest price of gold from chainlink
+     * @notice Returns the latest price of gold from chainlink
+     * @param account Address of the chainlink aggregator to use:
+     * Network: BSC Testnet XAU/USD
+     * Address: 0x4E08A779a85d28Cc96515379903A6029487CEbA0
      */
     function getPrice(address account) public returns (int) {
         priceFeedCommon = AggregatorV3Interface(account);
@@ -258,40 +323,65 @@ contract Q007 is Ownable, Blacklistable, Pausable, ERC20, AccessControl {
         return price;
     }
 
+     /**
+     * @notice Returns the current spend limit
+     */
     function getAdminLimit() public view returns(uint256) {
-        return SA_threshold;
+        return adminLimit;
     }
 
+     /**
+     * @notice Returns the total amount burned
+     */
     function getTotalBurnt() public view returns(uint) {
         return _totalBurnt;
     }
 
+    /**
+     * @notice Returns the total amount exchanged via dex
+     */
+    function getDexTotal() public view returns(uint256) {
+        return _dexTotal;
+    }
+
+     /**
+     * @notice Verification for user permissions
+     * @return Integer spend limit for Merchants, 0 for Super Admin, otherwise returns 1
+     */
     function verify_level(address user) public view returns(uint256) {
-        if (keccak256(abi.encodePacked((Members[user].role))) == keccak256(abi.encodePacked((SA))) || user==owner()) {
+        if (hasRole(SUPER_ADMIN, user) || user==owner()) {
             return 0;
-        } else if (keccak256(abi.encodePacked((Members[user].role))) == keccak256(abi.encodePacked((MA)))) {
-            return SA_threshold;
+        } else if (hasRole(MERCHANT, user)) {
+            return adminLimit;
         } else {
             return 1;
         }
     }
   
-    function set_SA_threshold(uint256 amount) public onlyHigherUser(_msgSender()) {
-        SA_threshold = amount;
+    /**
+     * @notice Sets the spend limit for super admin
+     * @param amount New limit amount
+     */
+    function setAdminLimit(uint256 amount) public onlyHigherUser(_msgSender()) {
+        adminLimit = amount;
     }
 
     /**
-     * @dev 3 Signer multisig function that adds new super admin
+     * @notice 3 Signer multisig function that adds new super admin
+     * @param user New user address to add as a super admin
      */
-    function newSuperAdmin(address payable user) public onlyRole(THREE_ROLE) {
-        require(keccak256(abi.encodePacked((Members[user].role))) != keccak256(abi.encodePacked((SA))), 
-            "Already SuperAdmin");
-        Members[user].role= SA;
+    function newSuperAdmin(address user) public onlyRole(THREE_ROLE) {
+        require(!hasRole(SUPER_ADMIN, user), "Already SuperAdmin");
+        _grantRole(SUPER_ADMIN, user);
+        Members[user] = SUPER_ADMIN;
+
         emit NewSuperAdminEvent(user, block.timestamp);
     }
 
     /**
-     * @dev 4 Signer multisig function updates both 3 signer and 4 signer multi sig wallet addresses
+     * @notice 4 Signer multisig function updates both 3 signer and 4 signer multi sig wallet addresses
+     * @param threeWallet Wallet address used for 3 signer multi sig functions
+     * @param fourWallet Wallet address used for 4 signer multi sig functions
      */
     function updateMultiSigWallets(address threeWallet, address fourWallet) external onlyRole(FOUR_ROLE) {
         require(threeWallet != address(0), "Invalid 3 signature wallet Address");
@@ -308,49 +398,75 @@ contract Q007 is Ownable, Blacklistable, Pausable, ERC20, AccessControl {
     }
 
     /**
-     * @dev 3 Signer multisig function that removes super admin
+     * @notice 3 Signer multisig function that removes super admin
+     * @param user Wallet address to remove super admin role
      */
-    function removeSuperAdmin(address payable user) public onlyRole(THREE_ROLE) {
-        Members[user].role = "user";
+    function removeSuperAdmin(address user) public onlyRole(THREE_ROLE) {
+        revokeRole(SUPER_ADMIN, user);
+        Members[user] = "user";
         emit SuperAdmin_Removed(user, block.timestamp);
     }
   
+     /**
+     * @notice Returns whether specified address has merchant role
+     * @param _account Address to check
+     */
     function isMerchant(address _account) public view returns (bool) {
-        return (keccak256(abi.encodePacked((Members[_account].role))) == keccak256(abi.encodePacked((MA))));
+        return hasRole(MERCHANT, _account);
     }
 
+    /**
+     * @notice Returns whether specified address has super admin role
+     * @param _account Address to check
+     */
     function isSuperAdmin(address _account) public view returns (bool) {
-        return (keccak256(abi.encodePacked((Members[_account].role))) == keccak256(abi.encodePacked((SA))));
-    }  
+        return hasRole(SUPER_ADMIN, _account);
+    } 
 
-    function newMerchant(address payable user) public onlyRole(THREE_ROLE) {
-        require(keccak256(abi.encodePacked((Members[user].role))) != keccak256(abi.encodePacked((MA))), 
-            "Already Merchant");
-        Members[user].role = MA;
+    /**
+     * @notice Adds a new merchant user
+     * @param user Address of user to add
+     */
+    function newMerchant(address user) public onlyRole(THREE_ROLE) {
+        require(!hasRole(MERCHANT, user), "Already Merchant");
+        _revokeRole(SUPER_ADMIN, user);
+        _grantRole(MERCHANT, user);
+        Members[user] = MERCHANT;
         emit NewMerchantEvent(user, block.timestamp);
     }
 
-    function removeMerchant(address payable user) public onlyRole(THREE_ROLE) {
-        Members[user].role= "user";
+    /**
+     * @notice Removes merchant user
+     * @param user Address of merchant user to remove
+     */
+    function removeMerchant(address user) public onlyRole(THREE_ROLE) {
+        _revokeRole(MERCHANT, user);
+        Members[user] = "user";
         emit MerchantRemoved(user, block.timestamp);
     }
   
     /**
-     * @dev 4 Signer multisig function that pauses contract
+     * @notice 4 Signer multisig function that pauses contract
      */
     function pause() public onlyRole(FOUR_ROLE) {
         _pause();
     }
 
     /**
-     * @dev 4 Signer multisig function that unpauses contract
+     * @notice 4 Signer multisig function that unpauses contract
      */
     function unpause() public onlyRole(FOUR_ROLE) {
         _unpause();
     }
 
+    /**
+     * @notice Withdraws tokens to physical gold, burning tokens
+     * @param client Sender wallet address the tokens are to be sent from (seller/exchanger)
+     * @param amount Amount of tokens to burn
+     * @param feeAmount Amount of tokens to be sent to the Fee wallet address from the Sender wallet address
+     */
     function withdrawGold(
-        address payable client,
+        address client,
         uint256 amount,
         uint256 feeAmount
     ) public onlyHighUser(_msgSender()) checkClientBalance(client, amount) {
@@ -363,17 +479,41 @@ contract Q007 is Ownable, Blacklistable, Pausable, ERC20, AccessControl {
     
         _transfer(client, feeAddress, feeAmount);
         _burn(client, amount);
+
+        //mint GoldX
+        IRewardVault(rewardVaultAddress).mineGoldX(client, amount);
+
         _totalBurnt = _totalBurnt + amount;
         _totalValue = _totalValue - amount;
      
     }
 
     /**
-     * @dev Override ownable function with 4 Signer multisig that transfers contract owner address
+     * @notice Override ownable function with 4 Signer multisig that transfers contract owner address
+     * @param newOwner wallet address to transfer to
      */
     function transferOwnership(address newOwner) public override onlyRole(FOUR_ROLE) {
         require(newOwner != address(0), "Ownable: new owner is the zero address");
         _transferOwnership(newOwner);
+    }
+
+    //Used to determine whether address is in dex list
+    function isDex(address dexContract) internal view returns (bool) {
+        return DexList[dexContract] == true;
+    }
+
+    //Performs tax calculations
+    function performTax(uint256 amount, uint256 specificTaxRate) internal {
+        require(specificTaxRate > 0, "Tax rate must be greater than 0");
+        address sender = _msgSender();
+        uint256 taxAmount;
+        uint256 totalTaxRate = 10 ** taxRatePower;
+        
+        taxAmount = amount * specificTaxRate / totalTaxRate;
+        require(balanceOf(sender) > (amount + taxAmount), "Insufficient balance");
+        _transfer(sender, taxAddress, taxAmount);
+
+        emit PerformedTax(sender, taxAmount);
     }
 
  
