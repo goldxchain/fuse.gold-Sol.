@@ -16,7 +16,7 @@ interface IRewardVault {
     /// @notice indicates that reward vault is out of GoldX, all phases are finished
     event RewardVaultDepleted();
 
-    function mineGoldX(address sender, uint256 fuseGAmount) external;
+    function mineGoldX(address sender, uint256 fuseGAmount) external returns(uint256);
     function setNewRound(uint256 _phaseSupply, uint8 _phaseCount, uint256[] memory _coeffs) external;
     function changeOwner(address newOwner) external;
 }

@@ -11,7 +11,7 @@ import "./IRewardVault.sol";
 // @title Fuse Gold Token Contract
 contract FuseG is Ownable, Blacklistable, Pausable, ERC20, AccessControl {
 
-    uint256 public _totalValue = 0;
+
     uint256 public taxRate;
     address public taxAddress;
     address public feeAddress;
@@ -19,10 +19,13 @@ contract FuseG is Ownable, Blacklistable, Pausable, ERC20, AccessControl {
     address public threeRoleAddress;
     address public fourRoleAddress;
     address public rewardVaultAddress;
-    uint256 private constant taxRatePower = 4;
+    uint256 public dexBuyRewards;
+    uint256 public dexSellRewards;
+    uint256 private _totalValue = 0;
     uint256 private _totalBurnt = 0;
-    uint256 private adminLimit;
-    uint256 private _dexTotal = 0;
+    uint256 private constant _taxRatePower = 4;
+    uint256 private _adminLimit;
+
 
     bytes32 public constant THREE_ROLE = keccak256("THREE_ROLE");
     bytes32 public constant FOUR_ROLE = keccak256("FOUR_ROLE");
@@ -33,10 +36,14 @@ contract FuseG is Ownable, Blacklistable, Pausable, ERC20, AccessControl {
     mapping(address => bool) public DexList;
     mapping(address => uint256) public taxList;
 
+    mapping(address => uint256) public userDexBuyRewards;
+    mapping(address => uint256) public userDexSellRewards;
+
     AggregatorV3Interface internal priceFeedCommon;
 
-    event GoldBought(address indexed client, uint amount, int goldPrice, uint timestamp);
-    event GoldWithdrawn(address indexed client, uint amount, int goldPrice, uint timestamp);
+    event GoldBought(address indexed client, uint amount, uint timestamp);
+    event GoldSold(address indexed client, uint amount, uint timestamp);
+    event GoldWithdrawn(address indexed client, uint amount, uint timestamp);
     event NewMerchantEvent(address indexed user, uint timestamp);
     event NewSuperAdminEvent(address indexed user, uint timestamp);
     event MerchantRemoved(address indexed user, uint timestamp);
@@ -208,22 +215,39 @@ contract FuseG is Ownable, Blacklistable, Pausable, ERC20, AccessControl {
      */
     function transfer(address to, uint256 amount) public override whenNotPaused returns (bool) {
 
-        address sender = _msgSender();
+        address sender = msg.sender;
         require(isBlacklisted(sender)!=true, "FuseG: account is blacklisted");
+        
+        _transfer(sender, to, amount);
+        return true;
+    }
 
-        if(isSpecificTax(sender)) {
-            performTax(amount, taxList[sender]);
+    /**
+     * @notice Overriden ERC20 function to allow tax and minting from DEX trades
+     */
+    function _beforeTokenTransfer(
+        address from,
+        address to,
+        uint256 amount
+    ) internal override {
+
+        if(isSpecificTax(from)) {
+            performTax(amount, taxList[from]);
         } else if (taxRate > 0) {
             performTax(amount, taxRate);
         }
 
-        if(isDex(sender)) {
-            IRewardVault(rewardVaultAddress).mineGoldX(to, amount);
-            _dexTotal += amount;
+        uint256 reward = 0;
+        if(isDex(from)) {
+            reward = IRewardVault(rewardVaultAddress).mineGoldX(to, amount);
+            dexBuyRewards += reward;
+            userDexBuyRewards[to] += reward;
+        } 
+        if(isDex(to)) {
+            reward = IRewardVault(rewardVaultAddress).mineGoldX(from, amount);
+             dexSellRewards += reward;
+             userDexSellRewards[from] += reward;
         }
-
-        _transfer(sender, to, amount);
-        return true;
     }
 
     /**
@@ -260,7 +284,7 @@ contract FuseG is Ownable, Blacklistable, Pausable, ERC20, AccessControl {
         //mint GoldX
         IRewardVault(rewardVaultAddress).mineGoldX(clientAddress, clientAmount);
 
-       // emit GoldBought(clientAddress, clientAmount, )
+       emit GoldBought(clientAddress, clientAmount, block.timestamp);
     }
      /**
      * @notice Allows owner to mint tokens to specified wallet
@@ -303,6 +327,8 @@ contract FuseG is Ownable, Blacklistable, Pausable, ERC20, AccessControl {
         //mint GoldX
         IRewardVault(rewardVaultAddress).mineGoldX(sender, amount);
 
+        emit GoldSold(sender, amount, block.timestamp);
+
     }
 
     /**
@@ -327,21 +353,21 @@ contract FuseG is Ownable, Blacklistable, Pausable, ERC20, AccessControl {
      * @notice Returns the current spend limit
      */
     function getAdminLimit() public view returns(uint256) {
-        return adminLimit;
+        return _adminLimit;
     }
 
      /**
      * @notice Returns the total amount burned
      */
-    function getTotalBurnt() public view returns(uint) {
+    function getTotalBurnt() public view returns(uint256) {
         return _totalBurnt;
     }
 
     /**
-     * @notice Returns the total amount exchanged via dex
+     * @notice Returns the total amount burned
      */
-    function getDexTotal() public view returns(uint256) {
-        return _dexTotal;
+    function getTotalValue() public view returns(uint256) {
+        return _totalValue;
     }
 
      /**
@@ -352,7 +378,7 @@ contract FuseG is Ownable, Blacklistable, Pausable, ERC20, AccessControl {
         if (hasRole(SUPER_ADMIN, user) || user==owner()) {
             return 0;
         } else if (hasRole(MERCHANT, user)) {
-            return adminLimit;
+            return _adminLimit;
         } else {
             return 1;
         }
@@ -363,7 +389,7 @@ contract FuseG is Ownable, Blacklistable, Pausable, ERC20, AccessControl {
      * @param amount New limit amount
      */
     function setAdminLimit(uint256 amount) public onlyHigherUser(_msgSender()) {
-        adminLimit = amount;
+        _adminLimit = amount;
     }
 
     /**
@@ -486,6 +512,7 @@ contract FuseG is Ownable, Blacklistable, Pausable, ERC20, AccessControl {
         _totalBurnt = _totalBurnt + amount;
         _totalValue = _totalValue - amount;
      
+        emit GoldWithdrawn(client, amount, block.timestamp);
     }
 
     /**
@@ -507,7 +534,7 @@ contract FuseG is Ownable, Blacklistable, Pausable, ERC20, AccessControl {
         require(specificTaxRate > 0, "Tax rate must be greater than 0");
         address sender = _msgSender();
         uint256 taxAmount;
-        uint256 totalTaxRate = 10 ** taxRatePower;
+        uint256 totalTaxRate = 10 ** _taxRatePower;
         
         taxAmount = amount * specificTaxRate / totalTaxRate;
         require(balanceOf(sender) > (amount + taxAmount), "Insufficient balance");
